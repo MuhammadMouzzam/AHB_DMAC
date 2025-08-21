@@ -1,4 +1,4 @@
-rtl = code/rtl/*
+rtl = code/rtl/*  code/Ahb-Rtl/*
 verif = code/verif/*
 
 all: simulate
@@ -17,7 +17,7 @@ compile: work
 	vlog -work test/work  $(rtl) $(verif);
 
 simulate: compile
-	vsim -c test/work.Dmac_Top_tb -do "run -all; quit;"
+	vsim -c test/work.Ahb_Dmac_tb -do "run -all; quit;"
 
 wave: compile
-	vsim test/work.Dmac_Top_tb -do "add wave *; run -all;"
+	vsim test/work.Ahb_Dmac_tb -do "add wave *; run -all;"

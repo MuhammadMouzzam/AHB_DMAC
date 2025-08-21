@@ -172,6 +172,7 @@ module Ahb_Dmac_tb;
         end
     end
 
+    int check = 0;
 
     initial begin
         // Initial state
@@ -205,12 +206,12 @@ module Ahb_Dmac_tb;
         source.mem[32'h0000_00AB] = 8'h00;
         source.mem[32'h0000_00AA] = 8'h00;
         source.mem[32'h0000_00A9] = 8'h00;
-        source.mem[32'h0000_00A8] = 8'd18;
+        source.mem[32'h0000_00A8] = 8'd22;
 
         source.mem[32'h0000_00AF] = 8'h00;
         source.mem[32'h0000_00AE] = 8'h01;
         source.mem[32'h0000_00AD] = 8'h00;
-        source.mem[32'h0000_00AC] = 8'h14;
+        source.mem[32'h0000_00AC] = 8'h24;
 
         dest.mem[32'h0000_00A3] = 8'h10;
         dest.mem[32'h0000_00A2] = 8'h00;
@@ -225,12 +226,12 @@ module Ahb_Dmac_tb;
         dest.mem[32'h0000_00AB] = 8'h00;
         dest.mem[32'h0000_00AA] = 8'h00;
         dest.mem[32'h0000_00A9] = 8'h00;
-        dest.mem[32'h0000_00A8] = 8'd18;
+        dest.mem[32'h0000_00A8] = 8'd22;
 
         dest.mem[32'h0000_00AF] = 8'h00;
         dest.mem[32'h0000_00AE] = 8'h01;
         dest.mem[32'h0000_00AD] = 8'h00;
-        dest.mem[32'h0000_00AC] = 8'h14;
+        dest.mem[32'h0000_00AC] = 8'h24;
         
 
         // Wait a few cycles
@@ -246,7 +247,7 @@ module Ahb_Dmac_tb;
 
         // Request from Peripheral 
         @(posedge clk);
-        DmacReq = 2'b01;
+        DmacReq = 2'b10;
 
         case (temp_hsize)
             2'b00: begin  // Byte
@@ -271,7 +272,14 @@ module Ahb_Dmac_tb;
 
 
         // Wait until transfer is done
-        wait (Interrupt == 1);
+        while (!check) begin
+            wait (Interrupt == 1)
+            @(negedge clk)
+            if (Interrupt == 1)
+                check = 1;
+        end
+
+
         repeat(2) @(posedge clk)
         $display("Time = %0t ps, Interrupt asserted!", $time);
         // Verify destination memory
@@ -285,7 +293,7 @@ task monitor(input logic [31:0] transfer_size, input logic [9:0] src_addr, dst_a
         $display("\033[1;36m---------Word No. %-2d---------\033[0m", k+1);
         for (int a = i, b = j, c = 0; (a < i+4) && (b < j+4) && (c < 4); a++, b++, c++) begin
             if (temp_Strb[c])
-                check_byte(a, b,dut.DmacReq_Reg[1]? dest.mem[32'h0000_00A3][4] ? 1:0 : source.mem[32'h0000_00A3][4] ? 1:0);
+                check_byte(a, b, dut.DmacReq_Reg[1]? dest.mem[32'h0000_00A3][4] ? 1:0 : source.mem[32'h0000_00A3][4] ? 1:0);
             else
                 $display("\033[1;35mInvalid Byte\033[0m");
         end

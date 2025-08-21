@@ -24,8 +24,8 @@ module slave_to_master_mux (
     input  logic [1:0]                          Hresp_S  [`NUM_SLAVES],
     input  logic                                Hreadyout_S [`NUM_SLAVES],
     
-    output logic [`DATA_WIDTH-1:0]              Hrdata [`NUM_MASTERS],
-    output logic [1:0]                          Hresp [`NUM_MASTERS],
+    output logic [`DATA_WIDTH-1:0]              Hrdata, // [`NUM_MASTERS],
+    output logic [1:0]                          Hresp, // [`NUM_MASTERS],
     output logic                                Hready               // Global Hready for master
 );
 
@@ -54,8 +54,8 @@ module slave_to_master_mux (
         over = 1'b0;
         for (int i = 0; i < `NUM_SLAVES; i++) begin
             if (selected_slave[i] == 1'b1 && !over) begin
-                Hrdata[selected_master] = Hrdata_S[i];
-                Hresp[selected_master]  = Hresp_S[i];
+                Hrdata = Hrdata_S[i]; //[selected_master]
+                Hresp  = Hresp_S[i]; //[selected_master]
                 Hready = Hreadyout_S[i];
                 over = 1'b1;
             end

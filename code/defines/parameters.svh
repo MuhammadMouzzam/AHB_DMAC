@@ -19,14 +19,10 @@
 
 localparam [`ADDR_WIDTH-1:0] BASE_ADDR [0:`NUM_SLAVES-1] = '{
     32'h0000_0000,
-    32'h1000_0000,
-    32'h2000_0000,
-    32'h3000_0000
+    32'h1000_0000
 };
 
 localparam [`ADDR_WIDTH-1:0] HIGH_ADDR [0:`NUM_SLAVES-1] = '{
     32'h0FFF_FFFF,
-    32'h1FFF_FFFF,
-    32'h2FFF_FFFF,
-    32'h3FFF_FFFF
+    32'h1FFF_FFFF
 };
