@@ -50,10 +50,10 @@ assign C_config = Ctrl_Reg[16];
 always_comb begin
     case(DmacReq)
         2'b01: decoded_Peri_addr = 32'h0000_0000;
-        2'b10: decoded_Peri_addr = 32'h0000_1000;
-        2'b11: decoded_Peri_addr = 32'h0000_1000;
+        2'b10: decoded_Peri_addr = 32'h1000_0000;
+        2'b11: decoded_Peri_addr = 32'h1000_0000;
         default: 
-            decoded_Peri_addr = 32'h0000_1000;
+            decoded_Peri_addr = 32'h0000_0000;
     endcase
 end
 
