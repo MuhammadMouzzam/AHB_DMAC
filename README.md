@@ -32,13 +32,12 @@
 - [DMAC](#dmac)
   - [Block Diagram/Pinout](#block-diagrampinout)
   - [Signals](#signals)
-    - [Slave Interface](#slave-interface)
+
     - [Request and Response Interface](#request-and-response-interface)
     - [Control and Interrupt Interface](#control-and-interrupt-interface)
     - [Master Interface](#master-interface)
   - [Working Pipeline](#working-pipeline)
     - [Request from Peripheral](#request-from-peripheral)
-    - [Slave Configuration](#slave-configuration)
     - [Enabling Channels](#enabling-channels)
     - [Transfer Completion and Disabling DMAC](#transfer-completion-and-disabling-dmac)
   - [DMAC Datapath](#dmac-datapath)
@@ -160,43 +159,39 @@ After being triggered by the peripheral, control transitions to the Bus Request 
 
 ### **DMAC Configuration**
 
-Once the bus is granted, the DMAC utilizes the peripheral’s base address (previously stored in `peri_addr_reg`) to generate read requests to the peripheral. The offsets corresponding to the configuration registers within the peripheral are added to the base address to access each register. All peripherals must implement identical offsets for their configuration registers to ensure uniform access.
+- Once bus is granted, DMAC uses `peri_addr_reg` (peripheral base address) + register offsets to generate read requests.  
+- All peripherals must implement identical offsets for uniform access.  
+- During this, `con_sel = 2`, sending requests directly to the master interface (bypassing channels).  
+- Data read is stored into DMAC configuration registers, each with a wait state:  
+  - **Wait for Src** → `SAddr_Reg`  
+  - **Wait for Dst** → `DAddr_Reg`  
+  - **Wait for Trans. Size** → `Size_Reg`  
+  - **Wait for Ctrl** → `Ctrl_Reg`  
 
-During this, the `con_sel` signal is set to `2` which takes the requests directly to the master interface without passing through any channel.
+- Configuration sequence (strictly ordered):  
+  1. `SAddr_Reg`  
+  2. `DAddr_Reg`  
+  3. `Size_Reg`  
+  4. `Ctrl_Reg`  
 
-The data fetched from the peripheral is stored into the corresponding DMAC configuration registers. Each register has an associated wait state during which the DMAC pauses until the read completes:
-- `Wait for Src`: Wait state for `SAddr_Reg`
-- `W ait for Dst`: Wait state for `DAddr_Reg`
-- `Wait for Trans. Size`: Wait state for `Size_Reg`
-- `Wait for Ctrl`: Wait state for `Ctrl_Reg`
+- Control transitions:  
+  - `Bus Reqd.` → `Wait for Src` → sequential wait states → `Wait for Ctrl`.  
+  - Transition from `Bus Reqd.` to `Wait for Src` also asserts the `ReqAck` bit (based on `DmacReq_Reg`).  
 
-The sequence of configuration is strictly defined as follows:
-- `SAddr_Reg`
-- `DAddr_Reg`
-- `Size_Reg`
-- `Ctrl_Reg`
-
-Accordingly, control transitions from the Bus Request (`Bus Reqd.`) state to Wait for Src, and then proceeds sequentially through each wait state until `Wait for Ctrl` is reached.
-During transition from `Bus Reqd.` to `Wait for Src` the corresponding bit of `ReqAck` signal, according to the Request bits stored in `DmacReq_Reg`.
-
----
 
 ### **Enabling Channels**
 
-After the DMAC has been configured, it uses the stored request bits in `DmacReq_Reg` to enable the corresponding channel for data transfer. To do that, based on the value of `DmacReq_Reg`, control transitions to one of the following states:  
+- After configuration, `DmacReq_Reg` determines which channel to enable:
+  - `MSB_Req`: entered when `DmacReq_Reg[1]` = 1 → enables **Channel 1**.  
+  - `LSB_Req`: entered when `DmacReq_Reg` = `01` → enables **Channel 2**.  
 
-- `MSB_Req`: Entered when `DmacReq_Reg[1]` is asserted.  
-- `LSB_Req`: Entered when `DmacReq_Reg` is set to `01`.  
+- Once enabled, control moves to the **Wait** state, where DMAC waits for transfer completion.  
 
-In these states, the respective channel is activated to carry out the transfer:  
-- `Channel 1` is enabled when `DmacReq_Reg[1]` is active.  
-- `Channel 2` is enabled when `DmacReq_Reg[0]` is active.
+- If `Bus_Grant` is deasserted:
+  - DMAC releases the bus, halts transfer, and deasserts channel enable.  
+  - Control returns to `MSB_Req` or `LSB_Req` based on `new_con_sel` (previously selected channel).  
 
-Once the channel is enabled, control transitions to the `Wait` state by enabling the channel, where the DMAC waits for the transfer to complete. If, during this process, the AHB arbiter deasserts `Bus_Grant`, the DMAC relinquishes bus ownership and the transfer is temporarily halted and channel enable is deasserted. Control then returns to either `MSB_Req` or `LSB_Req`, depending on which channel was active. This is determined using the `new_con_sel` signal, which records the previously selected channel.
-
-From this point onward, the DMAC re-requests bus access and, once granted, resumes the transfer until completion. 
-
----
+- DMAC then re-requests the bus and resumes transfer until completion.
 
 ### **Transfer Completion and Disabling DMAC**
 1. After the channel has been enabled, Now the DMAC waits for `irq` which signals transfer completion from the channel's side. During the transfer, it is important to decide which channel should output the data to the master interface. To do that, a mux is used with `con_sel` signal as selector. This `con_sel` is also given to a FlipFlop and the output of the FlipFlop, `new_con_sel` is the input to the controller of the DMAC, which informs which channel was enabled previously. `0` means `channel 1`, `1` means `channel 2`.
@@ -320,15 +315,20 @@ The DMA channel operates through a **finite state machine (FSM)** that governs t
 ---
 
 ### Data Transfer
-- Once enabled:
-  - The DMA channel issues a **read request** to the source address and increments the source address.
-  - Upon receiving valid data, it stores it in the **FIFO**.
-  - Then, a **write request** is issued to the destination address and destination address is incremented.
-- In **burst mode**, multiple data items are read in chunks, temporarily buffered in the FIFO, and then written sequentially.
-- This process repeats until the **entire configured transfer size** is completed.
-- If the `transfer_size` is an exact multiple of the `burst_size`, the entire data is transferred using burst transfers. Otherwise, the largest possible number of full bursts are used, and the remaining data (`transfer_size % burst_size`) is transferred using single transfers.
-- **Writing Strobe Signal - MWSTRB:** During **writing**, to indicate which `byte` (when `HSize` = `byte`) or which `halfword` (when `HSize` = `halfword`) is valid in the word being transferred, `MWSTRB` signal is used.
-Here's a table to link each combination of `MWSTRB` to the bytes of a word, indicating which one is valid.
+- **Process Flow**  
+  - Issues **read request** to source → increments source address.  
+  - Stores valid data in **FIFO**.  
+  - Issues **write request** to destination → increments destination address.  
+  - Repeats until full transfer completes.  
+
+- **Burst Mode**  
+  - Reads multiple items into FIFO, then writes sequentially.  
+  - If `transfer_size` is a multiple of `burst_size` → all data transferred in bursts.  
+  - Otherwise → largest possible bursts used, remainder (`transfer_size % burst_size`) done via single transfers.  
+
+- **MWSTRB (Write Strobe Signal)**  
+  - Indicates which **byte** (if `HSize = byte`) or **halfword** (if `HSize = halfword`) is valid in the transferred word.  
+  - Each `MWSTRB` combination maps to valid bytes in a word.  
 
 | Data Size  | Address Offset | MWSTRB | HWDATA[31:24] | HWDATA[23:16] | HWDATA[15:8] | HWDATA[7:0] |
 | ---------- | -------------- | ------ | ------------- | ------------- | ------------ | ----------- |
@@ -424,13 +424,13 @@ Once the DMAC receives the Bus_Grant, the peripheral begins configuring the DMAC
 </div>
 
 ### Dmac Reading 
-Here the DMAC writes data to the peripheral in bursts of 4, with the peripheral introducing an intentional 2-clock-cycle wait before accepting each write.
+The DMAC reads data from the peripheral in bursts of 4, while the peripheral introduces an intentional 2-clock-cycle wait before providing valid data.
 <div align='center'>
 <img src='docs/Read_Sim.jpg'>
 </div>
 
 ### Dmac Writing 
-Here the DMAC writes data to the peripheral in bursts of 4, with an intentional 2-clock-cycle wait.
+Here the DMAC writes data to the peripheral in bursts of 4, with the peripheral introducing an intentional 2-clock-cycle wait before accepting each write.
 <div align='center'>
 <img src='docs/Write_Sim.jpg'>
 </div>
